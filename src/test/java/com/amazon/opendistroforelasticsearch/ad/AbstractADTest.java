@@ -39,6 +39,7 @@ public class AbstractADTest extends ESTestCase {
 
     // transport test node
     protected int nodesCount;
+    // test new comment
     protected FakeNode[] testNodes;
 
     /**
