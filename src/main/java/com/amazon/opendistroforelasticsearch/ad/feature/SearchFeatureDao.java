@@ -169,6 +169,53 @@ public class SearchFeatureDao {
     }
 
     /**
+     * Get list of entities with high count in descending order within time range
+     * @param detector detector config
+     * @param size number of entities of highest count
+     * @param listener listener to return back the entities
+     */
+    public void getHighestCountEnities(
+        AnomalyDetector detector,
+        long startTime,
+        long endTime,
+        int size,
+        ActionListener<List<String>> listener
+    ) {
+        RangeQueryBuilder rangeQuery = new RangeQueryBuilder(detector.getTimeField())
+            .from(startTime)
+            .to(endTime)
+            .format("epoch_millis")
+            .includeLower(true)
+            .includeUpper(false);
+
+        BoolQueryBuilder dateRangeQuery = QueryBuilders.boolQuery().filter(rangeQuery);
+        TermsAggregationBuilder termsAgg = AggregationBuilders.terms(AGG_NAME_TERM).field(detector.getCategoryField().get(0)).size(size);
+        SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder()
+            .query(dateRangeQuery)
+            .aggregation(termsAgg)
+            .trackTotalHits(false)
+            .size(0);
+        SearchRequest searchRequest = new SearchRequest().indices(detector.getIndices().toArray(new String[0])).source(searchSourceBuilder);
+        ActionListener<SearchResponse> termsListener = ActionListener.wrap(response -> {
+            Aggregations aggs = response.getAggregations();
+            if (aggs == null) {
+                listener.onResponse(Collections.emptyList());
+                return;
+            }
+
+            List<String> results = aggs
+                .asList()
+                .stream()
+                .filter(agg -> AGG_NAME_TERM.equals(agg.getName()))
+                .flatMap(agg -> ((Terms) agg).getBuckets().stream())
+                .map(bucket -> bucket.getKeyAsString())
+                .collect(Collectors.toList());
+            listener.onResponse(results);
+        }, listener::onFailure);
+        client.search(searchRequest, termsListener);
+    }
+
+    /**
      * Get the entity's earliest and latest timestamps
      * @param detector detector config
      * @param entityName entity's name
