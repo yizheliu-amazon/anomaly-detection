@@ -169,6 +169,35 @@ public class SearchFeatureDao {
     }
 
     /**
+     * Get list of entities with high count in descending order
+     * @param detector detector config
+     * @param size number of entities of highest count
+     * @param listener listener to return back the entities
+     */
+    public void getHighestCountEnities(AnomalyDetector detector, int size, ActionListener<List<String>> listener) {
+        TermsAggregationBuilder termsAgg = AggregationBuilders.terms(AGG_NAME_TERM).field(detector.getCategoryField().get(0)).size(size);
+        SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder().aggregation(termsAgg).trackTotalHits(false).size(0);
+        SearchRequest searchRequest = new SearchRequest().indices(detector.getIndices().toArray(new String[0])).source(searchSourceBuilder);
+        ActionListener<SearchResponse> termsListener = ActionListener.wrap(response -> {
+            Aggregations aggs = response.getAggregations();
+            if (aggs == null) {
+                listener.onResponse(Collections.emptyList());
+                return;
+            }
+
+            List<String> results = aggs
+                .asList()
+                .stream()
+                .filter(agg -> AGG_NAME_TERM.equals(agg.getName()))
+                .flatMap(agg -> ((Terms) agg).getBuckets().stream())
+                .map(bucket -> bucket.getKeyAsString())
+                .collect(Collectors.toList());
+            listener.onResponse(results);
+        }, listener::onFailure);
+        client.search(searchRequest, termsListener);
+    }
+
+    /**
      * Get the entity's earliest and latest timestamps
      * @param detector detector config
      * @param entityName entity's name
@@ -661,6 +690,7 @@ public class SearchFeatureDao {
 
         client.search(request, ActionListener.wrap(response -> {
             logger.debug(() -> "getColdStartSamplesForPeriods: " + response.toString());
+            logger.info(String.format("getColdStartSamplesForPeriods found %s", response));
             Aggregations aggs = response.getAggregations();
             if (aggs == null) {
                 listener.onResponse(Collections.emptyList());
