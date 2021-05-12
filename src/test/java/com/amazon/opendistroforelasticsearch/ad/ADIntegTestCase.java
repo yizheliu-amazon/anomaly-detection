@@ -20,6 +20,8 @@ import static com.amazon.opendistroforelasticsearch.ad.util.RestHandlerUtils.XCO
 import static org.elasticsearch.common.xcontent.XContentFactory.jsonBuilder;
 
 import java.io.IOException;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -27,6 +29,8 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
+import com.amazon.opendistroforelasticsearch.ad.model.Feature;
+import com.google.common.collect.ImmutableMap;
 import org.elasticsearch.action.admin.cluster.settings.ClusterUpdateSettingsRequest;
 import org.elasticsearch.action.admin.cluster.settings.ClusterUpdateSettingsResponse;
 import org.elasticsearch.action.admin.indices.create.CreateIndexResponse;
@@ -51,6 +55,7 @@ import org.elasticsearch.common.xcontent.XContentBuilder;
 import org.elasticsearch.index.query.MatchAllQueryBuilder;
 import org.elasticsearch.plugins.Plugin;
 import org.elasticsearch.rest.RestStatus;
+import org.elasticsearch.search.aggregations.AggregationBuilder;
 import org.elasticsearch.search.builder.SearchSourceBuilder;
 import org.elasticsearch.test.ESIntegTestCase;
 import org.junit.Before;
@@ -70,6 +75,8 @@ public abstract class ADIntegTestCase extends ESIntegTestCase {
     protected String timeField = "timestamp";
     protected String categoryField = "type";
     protected String valueField = "value";
+
+    protected int DEFAULT_TEST_DATA_DOCS = 3000;
 
     @Override
     protected Collection<Class<? extends Plugin>> nodePlugins() {
@@ -233,4 +240,48 @@ public abstract class ADIntegTestCase extends ESIntegTestCase {
         return dataNodes.toArray(new DiscoveryNode[0]);
     }
 
+    public void ingestTestData(String testIndex, Instant startTime, int detectionIntervalInMinutes, String type) {
+        ingestTestData(testIndex, startTime, detectionIntervalInMinutes, type, DEFAULT_TEST_DATA_DOCS);
+    }
+
+    public void ingestTestData(String testIndex, Instant startTime, int detectionIntervalInMinutes, String type, int totalDocs) {
+        createTestDataIndex(testIndex);
+        List<Map<String, ?>> docs = new ArrayList<>();
+        Instant currentInterval = Instant.from(startTime);
+
+        for (int i = 0; i < totalDocs; i++) {
+            currentInterval = currentInterval.plus(detectionIntervalInMinutes, ChronoUnit.MINUTES);
+            double value = i % 500 == 0 ? randomDoubleBetween(1000, 2000, true) : randomDoubleBetween(10, 100, true);
+            docs
+                .add(
+                    ImmutableMap
+                        .of(
+                            timeField,
+                            currentInterval.toEpochMilli(),
+                            "value",
+                            value,
+                            "type",
+                            type,
+                            "is_error",
+                            randomBoolean(),
+                            "message",
+                            randomAlphaOfLength(5)
+                        )
+                );
+        }
+        BulkResponse bulkResponse = bulkIndexDocs(testIndex, docs, 30_000);
+        assertEquals(RestStatus.OK, bulkResponse.status());
+        assertFalse(bulkResponse.hasFailures());
+        long count = countDocs(testIndex);
+        assertEquals(totalDocs, count);
+    }
+
+    public Feature maxValueFeature() throws IOException {
+        return maxValueFeature(valueField);
+    }
+
+    public Feature maxValueFeature(String fieldName) throws IOException {
+        AggregationBuilder aggregationBuilder = TestHelpers.parseAggregation("{\"test\":{\"max\":{\"field\":\"" + fieldName + "\"}}}");
+        return new Feature(randomAlphaOfLength(5), randomAlphaOfLength(10), true, aggregationBuilder);
+    }
 }

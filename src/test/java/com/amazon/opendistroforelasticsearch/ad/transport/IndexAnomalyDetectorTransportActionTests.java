@@ -22,6 +22,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 
+import com.amazon.opendistroforelasticsearch.ad.feature.SearchFeatureDao;
 import org.elasticsearch.action.ActionListener;
 import org.elasticsearch.action.support.ActionFilters;
 import org.elasticsearch.action.support.WriteRequest;
@@ -54,6 +55,7 @@ public class IndexAnomalyDetectorTransportActionTests extends ESIntegTestCase {
     private ClusterService clusterService;
     private ClusterSettings clusterSettings;
     private ADTaskManager adTaskManager;
+    private SearchFeatureDao searchFeatureDao;
 
     @Override
     @Before
@@ -67,6 +69,7 @@ public class IndexAnomalyDetectorTransportActionTests extends ESIntegTestCase {
         when(clusterService.getClusterSettings()).thenReturn(clusterSettings);
 
         adTaskManager = mock(ADTaskManager.class);
+        searchFeatureDao = mock(SearchFeatureDao.class);
         action = new IndexAnomalyDetectorTransportAction(
             mock(TransportService.class),
             mock(ActionFilters.class),
@@ -75,7 +78,8 @@ public class IndexAnomalyDetectorTransportActionTests extends ESIntegTestCase {
             indexSettings(),
             mock(AnomalyDetectionIndices.class),
             xContentRegistry(),
-            adTaskManager
+            adTaskManager,
+            searchFeatureDao
         );
         task = mock(Task.class);
         request = new IndexAnomalyDetectorRequest(
@@ -128,7 +132,8 @@ public class IndexAnomalyDetectorTransportActionTests extends ESIntegTestCase {
             settings,
             mock(AnomalyDetectionIndices.class),
             xContentRegistry(),
-            adTaskManager
+            adTaskManager,
+            searchFeatureDao
         );
         transportAction.doExecute(task, request, response);
     }
@@ -152,7 +157,8 @@ public class IndexAnomalyDetectorTransportActionTests extends ESIntegTestCase {
             settings,
             mock(AnomalyDetectionIndices.class),
             xContentRegistry(),
-            adTaskManager
+            adTaskManager,
+            searchFeatureDao
         );
         transportAction.doExecute(task, request, response);
     }

@@ -98,6 +98,7 @@ import com.amazon.opendistroforelasticsearch.ad.rest.RestSearchAnomalyDetectorAc
 import com.amazon.opendistroforelasticsearch.ad.rest.RestSearchAnomalyDetectorInfoAction;
 import com.amazon.opendistroforelasticsearch.ad.rest.RestSearchAnomalyResultAction;
 import com.amazon.opendistroforelasticsearch.ad.rest.RestStatsAnomalyDetectorAction;
+import com.amazon.opendistroforelasticsearch.ad.rest.RestValidateAnomalyDetectorAction;
 import com.amazon.opendistroforelasticsearch.ad.settings.AnomalyDetectorSettings;
 import com.amazon.opendistroforelasticsearch.ad.settings.EnabledSetting;
 import com.amazon.opendistroforelasticsearch.ad.stats.ADStat;
@@ -164,6 +165,8 @@ import com.amazon.opendistroforelasticsearch.ad.transport.StopDetectorAction;
 import com.amazon.opendistroforelasticsearch.ad.transport.StopDetectorTransportAction;
 import com.amazon.opendistroforelasticsearch.ad.transport.ThresholdResultAction;
 import com.amazon.opendistroforelasticsearch.ad.transport.ThresholdResultTransportAction;
+import com.amazon.opendistroforelasticsearch.ad.transport.ValidateAnomalyDetectorAction;
+import com.amazon.opendistroforelasticsearch.ad.transport.ValidateAnomalyDetectorTransportAction;
 import com.amazon.opendistroforelasticsearch.ad.transport.handler.ADSearchHandler;
 import com.amazon.opendistroforelasticsearch.ad.transport.handler.AnomalyIndexHandler;
 import com.amazon.opendistroforelasticsearch.ad.transport.handler.AnomalyResultBulkIndexHandler;
@@ -262,6 +265,7 @@ public class AnomalyDetectorPlugin extends Plugin implements ActionPlugin, Scrip
         RestAnomalyDetectorJobAction anomalyDetectorJobAction = new RestAnomalyDetectorJobAction(settings, clusterService);
         RestSearchAnomalyDetectorInfoAction searchAnomalyDetectorInfoAction = new RestSearchAnomalyDetectorInfoAction();
         RestPreviewAnomalyDetectorAction previewAnomalyDetectorAction = new RestPreviewAnomalyDetectorAction();
+        RestValidateAnomalyDetectorAction validateAnomalyDetectorAction = new RestValidateAnomalyDetectorAction(settings, clusterService);
 
         return ImmutableList
             .of(
@@ -275,7 +279,8 @@ public class AnomalyDetectorPlugin extends Plugin implements ActionPlugin, Scrip
                 anomalyDetectorJobAction,
                 statsAnomalyDetectorAction,
                 searchAnomalyDetectorInfoAction,
-                previewAnomalyDetectorAction
+                previewAnomalyDetectorAction,
+                validateAnomalyDetectorAction
             );
     }
 
@@ -697,7 +702,8 @@ public class AnomalyDetectorPlugin extends Plugin implements ActionPlugin, Scrip
                 new ActionHandler<>(ADBatchTaskRemoteExecutionAction.INSTANCE, ADBatchTaskRemoteExecutionTransportAction.class),
                 new ActionHandler<>(ADTaskProfileAction.INSTANCE, ADTaskProfileTransportAction.class),
                 new ActionHandler<>(ADCancelTaskAction.INSTANCE, ADCancelTaskTransportAction.class),
-                new ActionHandler<>(ForwardADTaskAction.INSTANCE, ForwardADTaskTransportAction.class)
+                new ActionHandler<>(ForwardADTaskAction.INSTANCE, ForwardADTaskTransportAction.class),
+                new ActionHandler<>(ValidateAnomalyDetectorAction.INSTANCE, ValidateAnomalyDetectorTransportAction.class)
             );
     }
 

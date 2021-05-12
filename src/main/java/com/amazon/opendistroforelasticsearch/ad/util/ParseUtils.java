@@ -28,6 +28,7 @@ import java.io.IOException;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
@@ -37,10 +38,13 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.lucene.search.join.ScoreMode;
 import org.elasticsearch.ElasticsearchException;
+import org.elasticsearch.ElasticsearchSecurityException;
+import org.elasticsearch.ElasticsearchStatusException;
 import org.elasticsearch.ResourceNotFoundException;
 import org.elasticsearch.action.ActionListener;
 import org.elasticsearch.action.get.GetRequest;
 import org.elasticsearch.action.get.GetResponse;
+import org.elasticsearch.action.search.SearchRequest;
 import org.elasticsearch.action.search.SearchResponse;
 import org.elasticsearch.client.Client;
 import org.elasticsearch.cluster.service.ClusterService;
@@ -56,6 +60,7 @@ import org.elasticsearch.index.query.QueryBuilders;
 import org.elasticsearch.index.query.RangeQueryBuilder;
 import org.elasticsearch.index.query.TermQueryBuilder;
 import org.elasticsearch.index.query.TermsQueryBuilder;
+import org.elasticsearch.rest.RestStatus;
 import org.elasticsearch.search.aggregations.AggregationBuilder;
 import org.elasticsearch.search.aggregations.AggregatorFactories;
 import org.elasticsearch.search.aggregations.BaseAggregationBuilder;
@@ -453,6 +458,33 @@ public final class ParseUtils {
         return User.parse(userStr);
     }
 
+    /**
+     * This method checks requested user has enough permissions to have function executed.
+     * Below permissions might be needed for user, depending on various use cases:
+     *  - access to data source index specified in inputAnomalyDetector:
+     *    skipped if inputAnomalyDetector is null. It is not null only for cases like
+     *    create/update/validate/preview detector
+     *  - access to existing detector specified by detectorId:
+     *    needed only if (checkUserAgainstExistingDetector and filterByEnabled) is true
+     *  - access to data source index of existing detector specified by detectorId:
+     *    skipped if checkUserAgainstIndicesOfExistingDetector is false.
+     *    In case of deleting detector, it is false.
+     *
+     * If security is disabled, aka requestedUser is null, then none of above permissions are required.
+     * @param requestedUser user who sends such request
+     * @param detectorId detector id of existing detector
+     * @param filterByEnabled if filterBy is enabled or not
+     * @param listener listener
+     * @param function function to be executed after user permission is checked
+     * @param client client
+     * @param clusterService cluster Service
+     * @param xContentRegistry xContentRegistry
+     * @param inputAnomalyDetector detector from request; if request is for existing detector, this should be null
+     * @param checkUserAgainstExistingDetector if true, then we need to check user has permission to existing detector
+     *                                         if false, no need for such check
+     * @param checkUserAgainstIndicesOfExistingDetector if true, we need to check if user has permission to indices of existing detector
+     *                                                  if false, no need for such check
+     */
     public static void resolveUserAndExecute(
         User requestedUser,
         String detectorId,
@@ -461,23 +493,84 @@ public final class ParseUtils {
         AnomalyDetectorFunction function,
         Client client,
         ClusterService clusterService,
-        NamedXContentRegistry xContentRegistry
+        NamedXContentRegistry xContentRegistry,
+        AnomalyDetector inputAnomalyDetector,
+        boolean checkUserAgainstExistingDetector,
+        boolean checkUserAgainstIndicesOfExistingDetector
     ) {
         if (requestedUser == null) {
             // Security is disabled or user is superadmin
             function.execute();
-        } else if (!filterByEnabled) {
-            // security is enabled and filterby is disabled.
-            function.execute();
-        } else {
-            // security is enabled and filterby is enabled.
-            // Get detector and check if the user has permissions to access the detector
-            try {
-                getDetector(requestedUser, detectorId, listener, function, client, clusterService, xContentRegistry);
-            } catch (Exception e) {
-                listener.onFailure(e);
-            }
+            return;
         }
+
+        // Security is enabled
+        try {
+            boolean performUserAgainstExistingDetectorCheck = filterByEnabled && checkUserAgainstExistingDetector;
+            AnomalyDetectorFunction getExistingDetectorThenExecute = () -> getDetector(
+                requestedUser,
+                detectorId,
+                listener,
+                function,
+                client,
+                clusterService,
+                xContentRegistry,
+                performUserAgainstExistingDetectorCheck,
+                checkUserAgainstIndicesOfExistingDetector
+            );
+            if (inputAnomalyDetector != null) {
+                AnomalyDetectorFunction functionForNewAD = performUserAgainstExistingDetectorCheck
+                    ? getExistingDetectorThenExecute
+                    : function;
+                checkIndicesAndExecute(inputAnomalyDetector.getIndices(), requestedUser, functionForNewAD, client, listener);
+                return;
+            }
+            // Get existing detector and perform required permission check against user
+            getExistingDetectorThenExecute.execute();
+        } catch (Exception e) {
+            logger.error("Exception caught while checking user permissions", e);
+            listener.onFailure(e);
+        }
+    }
+
+    public static AnomalyDetectorFunction getADFunctionWithIndicesCheck(
+        boolean checkUserAgainstIndices,
+        List<String> indices,
+        User requestedUser,
+        AnomalyDetectorFunction function,
+        Client client,
+        ActionListener listener
+    ) {
+        if (!checkUserAgainstIndices) {
+            return function;
+        }
+        return () -> checkIndicesAndExecute(indices, requestedUser, function, client, listener);
+    }
+
+    public static void checkIndicesAndExecute(
+        List<String> indices,
+        User requestedUser,
+        AnomalyDetectorFunction function,
+        Client client,
+        ActionListener listener
+    ) {
+        if (indices == null || indices.isEmpty()) {
+            function.execute();
+            return;
+        }
+        SearchRequest searchRequest = new SearchRequest()
+            .indices(indices.toArray(new String[0]))
+            .source(new SearchSourceBuilder().size(1).query(QueryBuilders.matchAllQuery()));
+        client.search(searchRequest, ActionListener.wrap(r -> { function.execute(); }, e -> {
+            Exception exceptionThrown = e;
+            if (e instanceof ElasticsearchSecurityException) {
+                String errorMessage = String
+                    .format(Locale.ROOT, "User %s has no permission to indices: %s", requestedUser.getName(), indices);
+                exceptionThrown = new ElasticsearchStatusException(errorMessage, RestStatus.FORBIDDEN, e);
+            }
+            logger.error(exceptionThrown);
+            listener.onFailure(exceptionThrown);
+        }));
     }
 
     public static void getDetector(
@@ -487,7 +580,9 @@ public final class ParseUtils {
         AnomalyDetectorFunction function,
         Client client,
         ClusterService clusterService,
-        NamedXContentRegistry xContentRegistry
+        NamedXContentRegistry xContentRegistry,
+        boolean checkUserAgainstDetector,
+        boolean checkUserAgainstIndices
     ) {
         if (clusterService.state().metadata().indices().containsKey(AnomalyDetector.ANOMALY_DETECTORS_INDEX)) {
             GetRequest request = new GetRequest(AnomalyDetector.ANOMALY_DETECTORS_INDEX).id(detectorId);
@@ -496,7 +591,17 @@ public final class ParseUtils {
                     request,
                     ActionListener
                         .wrap(
-                            response -> onGetAdResponse(response, requestUser, detectorId, listener, function, xContentRegistry),
+                            response -> onGetAdResponse(
+                                response,
+                                requestUser,
+                                detectorId,
+                                listener,
+                                function,
+                                xContentRegistry,
+                                checkUserAgainstDetector,
+                                checkUserAgainstIndices,
+                                client
+                            ),
                             exception -> {
                                 logger.error("Failed to get anomaly detector: " + detectorId, exception);
                                 listener.onFailure(exception);
@@ -517,7 +622,10 @@ public final class ParseUtils {
         String detectorId,
         ActionListener<GetAnomalyDetectorResponse> listener,
         AnomalyDetectorFunction function,
-        NamedXContentRegistry xContentRegistry
+        NamedXContentRegistry xContentRegistry,
+        boolean checkUserAgainstDetector,
+        boolean checkUserAgainstIndices,
+        Client client
     ) {
         if (response.isExists()) {
             try (
@@ -526,12 +634,29 @@ public final class ParseUtils {
                 ensureExpectedToken(XContentParser.Token.START_OBJECT, parser.nextToken(), parser);
                 AnomalyDetector detector = AnomalyDetector.parse(parser);
                 User resourceUser = detector.getUser();
+                AnomalyDetectorFunction functionWithIndicesCheck = getADFunctionWithIndicesCheck(
+                        checkUserAgainstIndices,
+                        detector.getIndices(),
+                        requestUser,
+                        function,
+                        client,
+                        listener
+                );
 
                 if (checkUserPermissions(requestUser, resourceUser, detectorId)) {
                     function.execute();
-                } else {
-                    logger.debug("User: " + requestUser.getName() + " does not have permissions to access detector: " + detectorId);
-                    listener.onFailure(new ElasticsearchException("User does not have permissions to access detector: " + detectorId));
+                    if (checkUserAgainstDetector) {
+                        if (checkUserPermissions(requestUser, resourceUser, detectorId)) {
+                            functionWithIndicesCheck.execute();
+                        } else {
+                            logger.debug("User: " + requestUser.getName() + " does not have permissions to access detector: " + detectorId);
+                            listener.onFailure(new ElasticsearchException("User does not have permissions to access detector: " + detectorId));
+                        }
+                    } else {
+                        logger.debug("User: " + requestUser.getName() + " does not have permissions to access detector: " + detectorId);
+                        listener.onFailure(new ElasticsearchException("User does not have permissions to access detector: " + detectorId));
+                        functionWithIndicesCheck.execute();
+                    }
                 }
             } catch (Exception e) {
                 listener.onFailure(new ElasticsearchException("Unable to get user information from detector " + detectorId));

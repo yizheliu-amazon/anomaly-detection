@@ -15,37 +15,6 @@
 
 package com.amazon.opendistroforelasticsearch.ad;
 
-import static com.amazon.opendistroforelasticsearch.ad.model.ADTask.DETECTOR_ID_FIELD;
-import static com.amazon.opendistroforelasticsearch.ad.model.ADTask.EXECUTION_START_TIME_FIELD;
-import static com.amazon.opendistroforelasticsearch.ad.model.ADTask.IS_LATEST_FIELD;
-import static com.amazon.opendistroforelasticsearch.ad.util.RestHandlerUtils.START_JOB;
-import static org.elasticsearch.index.seqno.SequenceNumbers.UNASSIGNED_PRIMARY_TERM;
-import static org.elasticsearch.index.seqno.SequenceNumbers.UNASSIGNED_SEQ_NO;
-
-import java.io.IOException;
-import java.time.Instant;
-import java.time.temporal.ChronoUnit;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-
-import org.elasticsearch.action.bulk.BulkResponse;
-import org.elasticsearch.action.get.GetResponse;
-import org.elasticsearch.action.search.SearchRequest;
-import org.elasticsearch.action.search.SearchResponse;
-import org.elasticsearch.index.query.BoolQueryBuilder;
-import org.elasticsearch.index.query.TermQueryBuilder;
-import org.elasticsearch.plugins.Plugin;
-import org.elasticsearch.rest.RestStatus;
-import org.elasticsearch.search.SearchHit;
-import org.elasticsearch.search.aggregations.AggregationBuilder;
-import org.elasticsearch.search.builder.SearchSourceBuilder;
-import org.elasticsearch.search.sort.SortOrder;
-import org.elasticsearch.test.transport.MockTransportService;
-
 import com.amazon.opendistroforelasticsearch.ad.constant.CommonName;
 import com.amazon.opendistroforelasticsearch.ad.mock.plugin.MockReindexPlugin;
 import com.amazon.opendistroforelasticsearch.ad.model.ADTask;
@@ -59,13 +28,37 @@ import com.amazon.opendistroforelasticsearch.ad.transport.AnomalyDetectorJobActi
 import com.amazon.opendistroforelasticsearch.ad.transport.AnomalyDetectorJobRequest;
 import com.amazon.opendistroforelasticsearch.ad.transport.AnomalyDetectorJobResponse;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
+import org.elasticsearch.action.get.GetResponse;
+import org.elasticsearch.action.search.SearchRequest;
+import org.elasticsearch.action.search.SearchResponse;
+import org.elasticsearch.index.query.BoolQueryBuilder;
+import org.elasticsearch.index.query.TermQueryBuilder;
+import org.elasticsearch.plugins.Plugin;
+import org.elasticsearch.search.SearchHit;
+import org.elasticsearch.search.builder.SearchSourceBuilder;
+import org.elasticsearch.search.sort.SortOrder;
+import org.elasticsearch.test.transport.MockTransportService;
+
+import java.io.IOException;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.Iterator;
+import java.util.List;
+
+import static com.amazon.opendistroforelasticsearch.ad.model.ADTask.DETECTOR_ID_FIELD;
+import static com.amazon.opendistroforelasticsearch.ad.model.ADTask.EXECUTION_START_TIME_FIELD;
+import static com.amazon.opendistroforelasticsearch.ad.model.ADTask.IS_LATEST_FIELD;
+import static com.amazon.opendistroforelasticsearch.ad.util.RestHandlerUtils.START_JOB;
+import static org.elasticsearch.index.seqno.SequenceNumbers.UNASSIGNED_PRIMARY_TERM;
+import static org.elasticsearch.index.seqno.SequenceNumbers.UNASSIGNED_SEQ_NO;
 
 public abstract class HistoricalDetectorIntegTestCase extends ADIntegTestCase {
 
     protected String testIndex = "test_historical_data";
     protected int detectionIntervalInMinutes = 1;
-    protected int DEFAULT_TEST_DATA_DOCS = 3000;
 
     @Override
     protected Collection<Class<? extends Plugin>> getMockPlugins() {
@@ -74,47 +67,6 @@ public abstract class HistoricalDetectorIntegTestCase extends ADIntegTestCase {
         plugins.addAll(super.getMockPlugins());
         plugins.remove(MockTransportService.TestPlugin.class);
         return Collections.unmodifiableList(plugins);
-    }
-
-    public void ingestTestData(String testIndex, Instant startTime, int detectionIntervalInMinutes, String type) {
-        ingestTestData(testIndex, startTime, detectionIntervalInMinutes, type, DEFAULT_TEST_DATA_DOCS);
-    }
-
-    public void ingestTestData(String testIndex, Instant startTime, int detectionIntervalInMinutes, String type, int totalDocs) {
-        createTestDataIndex(testIndex);
-        List<Map<String, ?>> docs = new ArrayList<>();
-        Instant currentInterval = Instant.from(startTime);
-
-        for (int i = 0; i < totalDocs; i++) {
-            currentInterval = currentInterval.plus(detectionIntervalInMinutes, ChronoUnit.MINUTES);
-            double value = i % 500 == 0 ? randomDoubleBetween(1000, 2000, true) : randomDoubleBetween(10, 100, true);
-            docs
-                .add(
-                    ImmutableMap
-                        .of(
-                            timeField,
-                            currentInterval.toEpochMilli(),
-                            "value",
-                            value,
-                            "type",
-                            type,
-                            "is_error",
-                            randomBoolean(),
-                            "message",
-                            randomAlphaOfLength(5)
-                        )
-                );
-        }
-        BulkResponse bulkResponse = bulkIndexDocs(testIndex, docs, 30_000);
-        assertEquals(RestStatus.OK, bulkResponse.status());
-        assertFalse(bulkResponse.hasFailures());
-        long count = countDocs(testIndex);
-        assertEquals(totalDocs, count);
-    }
-
-    public Feature maxValueFeature() throws IOException {
-        AggregationBuilder aggregationBuilder = TestHelpers.parseAggregation("{\"test\":{\"max\":{\"field\":\"" + valueField + "\"}}}");
-        return new Feature(randomAlphaOfLength(5), randomAlphaOfLength(10), true, aggregationBuilder);
     }
 
     public AnomalyDetector randomDetector(DetectionDateRange dateRange, List<Feature> features) throws IOException {

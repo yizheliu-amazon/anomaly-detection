@@ -73,27 +73,7 @@ import com.amazon.opendistroforelasticsearch.ad.transport.IndexAnomalyDetectorRe
  * package private
  *
  */
-public class IndexAnomalyDetectorActionHandlerTests extends AbstractADTest {
-    static ThreadPool threadPool;
-    private String TEXT_FIELD_TYPE = "text";
-    private IndexAnomalyDetectorActionHandler handler;
-    private ClusterService clusterService;
-    private NodeClient clientMock;
-    private TransportService transportService;
-    private ActionListener<IndexAnomalyDetectorResponse> channel;
-    private AnomalyDetectionIndices anomalyDetectionIndices;
-    private String detectorId;
-    private Long seqNo;
-    private Long primaryTerm;
-    private AnomalyDetector detector;
-    private WriteRequest.RefreshPolicy refreshPolicy;
-    private TimeValue requestTimeout;
-    private Integer maxSingleEntityAnomalyDetectors;
-    private Integer maxMultiEntityAnomalyDetectors;
-    private Integer maxAnomalyFeatures;
-    private Settings settings;
-    private RestRequest.Method method;
-    private ADTaskManager adTaskManager;
+public class IndexAnomalyDetectorActionHandlerTests extends AnomalyDetectorActionHandlerTestsBase<IndexAnomalyDetectorResponse> {
 
     /**
      * Mockito does not allow mock final methods.  Make my own delegates and mock them.
@@ -181,7 +161,8 @@ public class IndexAnomalyDetectorActionHandlerTests extends AbstractADTest {
             method,
             xContentRegistry(),
             null,
-            adTaskManager
+            adTaskManager,
+            searchFeatureDao
         );
     }
 
@@ -229,7 +210,8 @@ public class IndexAnomalyDetectorActionHandlerTests extends AbstractADTest {
             method,
             xContentRegistry(),
             null,
-            adTaskManager
+            adTaskManager,
+            searchFeatureDao
         );
 
         handler.start();
@@ -293,7 +275,8 @@ public class IndexAnomalyDetectorActionHandlerTests extends AbstractADTest {
             method,
             xContentRegistry(),
             null,
-            adTaskManager
+            adTaskManager,
+            searchFeatureDao
         );
 
         ArgumentCaptor<Exception> response = ArgumentCaptor.forClass(Exception.class);
@@ -370,7 +353,8 @@ public class IndexAnomalyDetectorActionHandlerTests extends AbstractADTest {
             method,
             xContentRegistry(),
             null,
-            adTaskManager
+            adTaskManager,
+            searchFeatureDao
         );
 
         ArgumentCaptor<Exception> response = ArgumentCaptor.forClass(Exception.class);
@@ -464,7 +448,8 @@ public class IndexAnomalyDetectorActionHandlerTests extends AbstractADTest {
             RestRequest.Method.PUT,
             xContentRegistry(),
             null,
-            adTaskManager
+            adTaskManager,
+            searchFeatureDao
         );
 
         ArgumentCaptor<Exception> response = ArgumentCaptor.forClass(Exception.class);
@@ -586,7 +571,8 @@ public class IndexAnomalyDetectorActionHandlerTests extends AbstractADTest {
             RestRequest.Method.PUT,
             xContentRegistry(),
             null,
-            adTaskManager
+            adTaskManager,
+            searchFeatureDao
         );
 
         handler.start();
@@ -660,7 +646,8 @@ public class IndexAnomalyDetectorActionHandlerTests extends AbstractADTest {
             RestRequest.Method.PUT,
             xContentRegistry(),
             null,
-            adTaskManager
+            adTaskManager,
+            searchFeatureDao
         );
 
         handler.start();
